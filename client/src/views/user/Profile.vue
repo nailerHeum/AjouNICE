@@ -10,7 +10,7 @@
                 id="username"
                 class="underline underline-animated"
               >
-                <strong>{{ user.user_nm }}</strong>
+                <strong>{{ me.user_nm }}</strong>
               </span>
               <span>님, 환영합니다.</span>
             </h2>
@@ -30,16 +30,16 @@
                         </b-upload>
                       </div>
                       <img
-                        v-show="user.user_profile"
-                        :src="user.user_profile"
-                        :alt="user.user_nm"
+                        v-show="me.user_profile"
+                        :src="me.user_profile"
+                        :alt="me.user_nm"
                       >
                       <v-gravatar
-                        v-show="!user.user_profile"
-                        :email="$store.state.user.email"
+                        v-show="!me.user_profile"
+                        :email="me.email"
                       />
                     </figure>
-                    <p v-show="!user.user_profile">
+                    <p v-show="!me.user_profile">
                       지정하신 프로필 이미지가 없어 기본 이미지를 표시합니다.
                     </p>
                   </div>
@@ -48,7 +48,7 @@
                       <span class="header">
                         <strong>닉네임</strong>
                       </span>&nbsp;
-                      <span class="content">{{ user.nick_nm }}</span>
+                      <span class="content">{{ me.nick_nm }}</span>
                     </p>
                     <p class="dpts">
                       <span class="header">
@@ -65,7 +65,7 @@
                   </header>
                   <div class="buttons">
                     <b-button
-                      v-show="user.admin_type === 'A'"
+                      v-show="me.admin_type === 'A'"
                       type="is-primary"
                       size="is-small"
                       tag="router-link"
@@ -98,42 +98,7 @@
           </div>
         </section>
         <hr>
-        <b-table
-          :data="user.articles"
-          :narrowed="true"
-          :focusable="true"
-          :mobile-cards="false"
-        >
-          <template slot-scope="props">
-            <b-table-column
-              field="title"
-              label="제목"
-            >
-              <router-link :to="`/board/${props.row.board_idx}/view`">
-                {{ props.row.title }}
-              </router-link>
-            </b-table-column>
-            <b-table-column
-              field="category_idx"
-              label="카테고리"
-            >
-              {{ props.row.category_idx }}
-            </b-table-column>
-            <b-table-column
-              field="view_cnt"
-              label="조회"
-            >
-              {{ props.row.view_cnt | numberWithCommas }}회
-            </b-table-column>
-            <b-table-column
-              field="reg_dt"
-              label="작성일"
-            >
-              {{ props.row.reg_dt | formatDateTime }}
-            </b-table-column>
-          </template>
-        </b-table>
-        <!-- <MyPosts :posts="user.articles" /> -->
+        <MyPosts :posts="me.articles" />
         <hr>
         <MyReviews />
         <hr>
@@ -179,8 +144,8 @@
 <script>
 import urljoin from 'url-join'
 import gql from 'graphql-tag'
-import { User, Notice } from '@/assets/graphql/queries'
-import { ModifiedProfileImageURL } from '@/assets/graphql/mutations'
+import { Notice, Profile } from '@/assets/graphql/queries'
+import { singleUpload } from '@/assets/graphql/mutations'
 import { Navigation, MyPosts, MyReviews, Footer } from '@/components'
 export default {
   components: {
@@ -193,20 +158,21 @@ export default {
     return {
       scrollBase: null,
       thumbnail: null,
-      user: {
-        user_nm: '',
-        user_profile: '',
-        nick_nm: '',
-        dpt_cd: '',
-        admin_type: '',
-        user_type: '',
-        articles: []
-      },
       loading: true,
       dpt_cds: [],
       dpt_cd_labels: [],
       dpt: {
         data: []
+      }
+    }
+  },
+  apollo: {
+    me: {
+      query: gql`${Profile}`,
+      variables () {
+        return {
+          token: this.$store.state.accessToken
+        }
       }
     }
   },
@@ -219,28 +185,8 @@ export default {
     }
   },
   watch: {
-    thumbnail (file) {
-      // S3 업로드 및 즉각 썸네일 반영
-      this.$apollo.mutate({
-        mutation: gql`${ModifiedProfileImageURL}`,
-        variables: {
-          file,
-          user_idx: this.$store.state.user.idx
-        }
-      }).then(({ data: { modifiedProfileImage } }) => {
-        this.user.user_profile = modifiedProfileImage
-      })
-    }
-  },
-  beforeCreate () {
-    this.$apollo.query({
-      query: gql`${User}`,
-      variables: {
-        id: this.$store.state.user.idx
-      }
-    }).then(({ data: { user } }) => {
-      this.user = user
-      this.dpt_cds = user.dpt_cd.split(',')
+    me (value) {
+      this.dpt_cds = this.me.dpt_cd.split(',')
       this.dpt_cds.forEach(dpt => {
         this.$apollo.query({
           query: gql`{
@@ -253,19 +199,26 @@ export default {
         })
       })
       this.loadNotice()
-    })
-  },
-  beforeMount () {
-    document.body.classList.add('loading')
-  },
-  mounted () {
-    document.body.classList.remove('loading')
-  },
-  beforeUpdate () {
-    document.body.classList.add('loading')
-  },
-  updated () {
-    document.body.classList.remove('loading')
+    },
+    thumbnail (file) {
+      // S3 업로드 및 즉각 썸네일 반영
+      this.$apollo.mutate({
+        mutation: gql`${singleUpload}`,
+        variables: {
+          file,
+          uploadType: 'PROFILE',
+          options: {
+            PROFILE: {
+              raw: false,
+              user_idx: this.$store.state.user.idx
+            }
+          }
+        }
+      }).then(({ data: { singleUpload } }) => {
+        this.$buefy.toast.open('프로필이 변경되었습니다.')
+        this.me.user_profile = singleUpload
+      })
+    }
   },
   methods: {
     loadNotice () {
